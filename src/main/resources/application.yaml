@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: interview-copilot_bff
+  threads:
+    virtual:
+      enabled: true
+
+bff:
+  internal-gateway-url: ${INTERNAL_GATEWAY_URL:http://localhost:8083}
+  token-uri: ${OIDC_TOKEN_URI:http://localhost:8081/realms/interview-copilot/protocol/openid-connect/token}
+  client-id: ${BFF_CLIENT_ID:interview-copilot-bff}
+  client-secret: ${BFF_CLIENT_SECRET:CHANGE_ME}
+  scopes: ${BFF_SCOPES:interview-copilot/service interview-copilot/act-as-user}
+
+springdoc:
+  default-produces-media-type: application/json
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${PORT:8080}
