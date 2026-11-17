@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
 @RestController
-@RequestMapping("/api")
+@RequestMapping("/api/v1")
 class WhoamiController {
 
     /** Screen-shaped response: the shell only needs the user id. */
@@ -26,7 +26,7 @@ class WhoamiController {
 
     @GetMapping(value = "/whoami", produces = "application/json")
     WhoamiResponse whoami(@Parameter(hidden = true) @RequestHeader("X-User-Id") String userId) {
-        BackendWhoami backend = internalGateway.get().uri("/api/whoami")
+        BackendWhoami backend = internalGateway.get().uri("/api/v1/whoami")
                 .header("X-User-Id", userId)
                 .retrieve().body(BackendWhoami.class);
         return new WhoamiResponse(backend.userId());

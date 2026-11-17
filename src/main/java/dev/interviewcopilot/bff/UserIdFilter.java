@@ -15,7 +15,9 @@ class UserIdFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/");
+        String path = request.getRequestURI();
+        // Sign-up and password reset happen before a user exists; the edge gateway exposes only these without a token.
+        return !path.startsWith("/api/") || path.startsWith("/api/v1/accounts/");
     }
 
     @Override

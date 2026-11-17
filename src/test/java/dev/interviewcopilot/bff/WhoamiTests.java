@@ -49,7 +49,7 @@ class WhoamiTests {
     @BeforeAll
     static void start() throws IOException {
         internalGateway = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        internalGateway.createContext("/api/whoami", exchange -> {
+        internalGateway.createContext("/api/v1/whoami", exchange -> {
             seenAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
             seenUser.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             byte[] body = "{\"userId\":\"u1\",\"clientId\":\"interview-copilot-bff\"}"
@@ -59,7 +59,7 @@ class WhoamiTests {
             exchange.getResponseBody().write(body);
             exchange.close();
         });
-        internalGateway.createContext("/api/stt-token", exchange -> {
+        internalGateway.createContext("/api/v1/stt-token", exchange -> {
             seenAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
             seenUser.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             seenQuery.set(exchange.getRequestURI().getQuery());
@@ -68,6 +68,15 @@ class WhoamiTests {
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        internalGateway.createContext("/api/v1/accounts/sign-up", exchange -> {
+            seenUser.set(String.valueOf(exchange.getRequestHeaders().getFirst("X-User-Id")));
+            boolean duplicate = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8).contains("taken@");
+            byte[] body = duplicate ? "{\"detail\":\"An account with this email already exists.\"}".getBytes(StandardCharsets.UTF_8) : new byte[0];
+            exchange.getResponseHeaders().add("Content-Type", "application/problem+json");
+            exchange.sendResponseHeaders(duplicate ? 409 : 201, duplicate ? body.length : -1);
+            if (duplicate) exchange.getResponseBody().write(body);
             exchange.close();
         });
         internalGateway.start();
@@ -85,7 +94,7 @@ class WhoamiTests {
 
     @Test
     void rejectsRequestsWithoutUserId() throws Exception {
-        mvc.perform(get("/api/whoami")).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/whoami")).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -96,7 +105,7 @@ class WhoamiTests {
                 Instant.now(), Instant.now().plusSeconds(60));
         when(manager.authorize(any())).thenReturn(new OAuth2AuthorizedClient(registration, "x", token));
 
-        mvc.perform(get("/api/whoami").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/v1/whoami").header("X-User-Id", "u1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("u1"));
 
@@ -112,12 +121,40 @@ class WhoamiTests {
                 Instant.now(), Instant.now().plusSeconds(60));
         when(manager.authorize(any())).thenReturn(new OAuth2AuthorizedClient(registration, "x", token));
 
-        mvc.perform(get("/api/stt-token?provider=deepgram").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/v1/stt-token?provider=deepgram").header("X-User-Id", "u1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("temp"))
                 .andExpect(jsonPath("$.expiresInSeconds").value(60));
 
         assertThat(seenQuery.get()).isEqualTo("provider=deepgram");
         assertThat(seenUser.get()).isEqualTo("u1");
+    }
+
+    private void serviceToken() {
+        var registration = ClientRegistration.withRegistrationId("x").clientId("x")
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS).tokenUri("http://unused").build();
+        var token = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "service-token",
+                Instant.now(), Instant.now().plusSeconds(60));
+        when(manager.authorize(any())).thenReturn(new OAuth2AuthorizedClient(registration, "x", token));
+    }
+
+    @Test
+    void signUpNeedsNoUserIdAndRelaysSuccess() throws Exception {
+        serviceToken();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/accounts/sign-up")
+                        .contentType("application/json")
+                        .content("{\"email\":\"dana@example.test\",\"name\":\"Dana\",\"password\":\"long enough password\"}"))
+                .andExpect(status().isCreated());
+        assertThat(seenUser.get()).isEqualTo("null");
+    }
+
+    @Test
+    void signUpRelaysTheBackendErrorBody() throws Exception {
+        serviceToken();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/v1/accounts/sign-up")
+                        .contentType("application/json")
+                        .content("{\"email\":\"taken@example.test\",\"name\":\"Dana\",\"password\":\"long enough password\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("An account with this email already exists."));
     }
 }
