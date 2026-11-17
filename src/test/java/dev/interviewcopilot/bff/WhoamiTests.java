@@ -38,6 +38,7 @@ class WhoamiTests {
     static HttpServer internalGateway;
     static final AtomicReference<String> seenAuth = new AtomicReference<>();
     static final AtomicReference<String> seenUser = new AtomicReference<>();
+    static final AtomicReference<String> seenQuery = new AtomicReference<>();
 
     @Autowired
     MockMvc mvc;
@@ -52,6 +53,17 @@ class WhoamiTests {
             seenAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
             seenUser.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
             byte[] body = "{\"userId\":\"u1\",\"clientId\":\"interview-copilot-bff\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        internalGateway.createContext("/api/stt-token", exchange -> {
+            seenAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            seenUser.set(exchange.getRequestHeaders().getFirst("X-User-Id"));
+            seenQuery.set(exchange.getRequestURI().getQuery());
+            byte[] body = "{\"provider\":\"deepgram\",\"token\":\"temp\",\"expiresInSeconds\":60}"
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
@@ -89,6 +101,23 @@ class WhoamiTests {
                 .andExpect(jsonPath("$.userId").value("u1"));
 
         assertThat(seenAuth.get()).isEqualTo("Bearer service-token");
+        assertThat(seenUser.get()).isEqualTo("u1");
+    }
+
+    @Test
+    void relaysSpeechTokenWithProviderAndUserId() throws Exception {
+        var registration = ClientRegistration.withRegistrationId("x").clientId("x")
+                .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS).tokenUri("http://unused").build();
+        var token = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER, "service-token",
+                Instant.now(), Instant.now().plusSeconds(60));
+        when(manager.authorize(any())).thenReturn(new OAuth2AuthorizedClient(registration, "x", token));
+
+        mvc.perform(get("/api/stt-token?provider=deepgram").header("X-User-Id", "u1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("temp"))
+                .andExpect(jsonPath("$.expiresInSeconds").value(60));
+
+        assertThat(seenQuery.get()).isEqualTo("provider=deepgram");
         assertThat(seenUser.get()).isEqualTo("u1");
     }
 }
