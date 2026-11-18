@@ -5,3 +5,4 @@
 - `X-User-Id` is hidden from the published OpenAPI spec: the edge gateway sets it, the frontend never sends it.
 - **API versioning:** routes are `/api/v1/...`; `info.version` is the contract version (`1.0.0`). The generated frontend client is type-checked against the versioned paths, so a version bump shows up as a compile error.
 - **Account routes carry no `X-User-Id`** (there is no user yet) and relay backend errors (Problem Details bodies) unchanged so the frontend can show the message.
+- **Suggestion stream relay (milestone 4).** The BFF reads the backend's event stream and re-emits each event through an `SseEmitter`. A `StreamingResponseBody` was tried first and did not work: Tomcat sent nothing to the client until the upstream closed, even with a flush per chunk (`StreamingTests` reproduces this). The upstream status is read before streaming starts, so a 404 stays a 404. Comments (keep-alives) are forwarded too.
